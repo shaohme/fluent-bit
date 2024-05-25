@@ -818,7 +818,7 @@ static int log_record_set_attributes(struct opentelemetry_context *ctx,
     /* Maximum array size is the total number of root keys in metadata and record keys */
     array_size = event->body->via.map.size;
 
-    /* log metadata (metada that comes from original Fluent Bit record ) */
+    /* log metadata (metadata that comes from original Fluent Bit record) */
     metadata = event->metadata;
     if (metadata) {
         array_size += metadata->via.map.size;
@@ -866,6 +866,7 @@ static int log_record_set_attributes(struct opentelemetry_context *ctx,
         if (unpacked) {
             msgpack_unpacked_destroy(&result);
             flb_free(out_buf);
+
         }
         return -1;
     }
@@ -894,44 +895,25 @@ static int log_record_set_attributes(struct opentelemetry_context *ctx,
     return 0;
 }
 
-static int flush_to_otel(struct opentelemetry_context *ctx,
-                         struct flb_event_chunk *event_chunk,
-                         Opentelemetry__Proto__Logs__V1__LogRecord **logs,
-                         size_t log_count)
+static int logs_flush_to_otel(struct opentelemetry_context *ctx, struct flb_event_chunk *event_chunk,
+                              Opentelemetry__Proto__Collector__Logs__V1__ExportLogsServiceRequest *export_logs)
 {
     int ret;
     void *body;
     unsigned len;
 
-    Opentelemetry__Proto__Collector__Logs__V1__ExportLogsServiceRequest export_logs;
-    Opentelemetry__Proto__Logs__V1__ScopeLogs scope_log;
-    Opentelemetry__Proto__Logs__V1__ResourceLogs resource_log;
-    Opentelemetry__Proto__Logs__V1__ResourceLogs *resource_logs[1];
-    Opentelemetry__Proto__Logs__V1__ScopeLogs *scope_logs[1];
+    len = opentelemetry__proto__collector__logs__v1__export_logs_service_request__get_packed_size(export_logs);
+    if (len == 0) {
+        return FLB_ERROR;
+    }
 
-    opentelemetry__proto__collector__logs__v1__export_logs_service_request__init(&export_logs);
-    opentelemetry__proto__logs__v1__resource_logs__init(&resource_log);
-    opentelemetry__proto__logs__v1__scope_logs__init(&scope_log);
-
-    scope_log.log_records = logs;
-    scope_log.n_log_records = log_count;
-    scope_logs[0] = &scope_log;
-
-    resource_log.scope_logs =  scope_logs;
-    resource_log.n_scope_logs = 1;
-    resource_logs[0] = &resource_log;
-
-    export_logs.resource_logs = resource_logs;
-    export_logs.n_resource_logs = 1;
-
-    len = opentelemetry__proto__collector__logs__v1__export_logs_service_request__get_packed_size(&export_logs);
     body = flb_calloc(len, sizeof(char));
     if (!body) {
         flb_errno();
         return FLB_ERROR;
     }
 
-    opentelemetry__proto__collector__logs__v1__export_logs_service_request__pack(&export_logs, body);
+    opentelemetry__proto__collector__logs__v1__export_logs_service_request__pack(export_logs, body);
 
     /* send post request to opentelemetry with content type application/x-protobuf */
     ret = http_post(ctx, body, len,
@@ -1157,13 +1139,14 @@ static int append_v1_logs_message(struct opentelemetry_context *ctx,
     if (ctx->ra_trace_id_message) {
         ra_val = flb_ra_get_value_object(ctx->ra_trace_id_message, *event->body);
         if (ra_val != NULL) {
-            if(ra_val->o.type == MSGPACK_OBJECT_BIN){
+            if (ra_val->o.type == MSGPACK_OBJECT_BIN){
                 log_record->trace_id.data = flb_calloc(1, ra_val->o.via.bin.size);
                 if (log_record->trace_id.data) {
                     memcpy(log_record->trace_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
                     log_record->trace_id.len = ra_val->o.via.bin.size;
                 }
-            }else if(ra_val->o.type == MSGPACK_OBJECT_STR){
+            }
+            else if(ra_val->o.type == MSGPACK_OBJECT_STR){
                 log_record->trace_id.data = flb_calloc(16, sizeof(uint8_t));
                 if (log_record->trace_id.data) {
                     // Convert from hexdec string to a 16 byte array
@@ -1176,7 +1159,8 @@ static int append_v1_logs_message(struct opentelemetry_context *ctx,
                     memcpy(log_record->trace_id.data, val, sizeof(val));
                     log_record->trace_id.len = sizeof(val);
                 }
-            }else{
+            }
+            else{
                 flb_plg_warn(ctx->ins, "Unable to process %s. Unsupported data type.\n", ctx->ra_trace_id_message->pattern);
             }
             flb_ra_key_value_destroy(ra_val);
@@ -1186,20 +1170,82 @@ static int append_v1_logs_message(struct opentelemetry_context *ctx,
     return 0;
 }
 
+/*
+ * From a group record, extract it metadata and validate if it has a valid OTLP schema and check that
+ * resource_id is set. On success it returns the resource_id, otherwise it returns -1.
+ */
+static int get_otlp_group_metadata(struct opentelemetry_context *ctx, struct flb_log_event *event)
+{
+    int ret;
+    struct flb_ra_value *ra_val;
+
+    /*
+     * $schema == 'otlp'
+     */
+    ra_val = flb_ra_get_value_object(ctx->ra_meta_schema, *event->metadata);
+    if (ra_val == NULL) {
+        return -1;
+    }
+
+    if (ra_val->o.type != MSGPACK_OBJECT_STR) {
+        flb_ra_key_value_destroy(ra_val);
+        return -1;
+    }
+
+    if (ra_val->o.via.str.size != 4) {
+        flb_ra_key_value_destroy(ra_val);
+        return -1;
+    }
+
+    if (strncmp(ra_val->o.via.str.ptr, "otlp", ra_val->o.via.str.size) != 0) {
+        flb_ra_key_value_destroy(ra_val);
+        return -1;
+    }
+    flb_ra_key_value_destroy(ra_val);
+
+
+    /*
+     * $resource_id
+     */
+    ra_val = flb_ra_get_value_object(ctx->ra_meta_resource_id, *event->metadata);
+    if (ra_val == NULL) {
+        return -1;
+    }
+
+    if (ra_val->o.type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
+        flb_ra_key_value_destroy(ra_val);
+        return -1;
+    }
+
+    ret = ra_val->o.via.u64;
+    flb_ra_key_value_destroy(ra_val);
+
+    return ret;
+}
+
 static int process_logs(struct flb_event_chunk *event_chunk,
                         struct flb_output_flush *out_flush,
                         struct flb_input_instance *ins, void *out_context,
                         struct flb_config *config)
 {
-    int                                         ret;
-    size_t                                      i;
-    size_t                                      log_record_count;
+    int i;
+    int ret;
+    int record_type;
+    int resource_id = -1;
+    int log_record_count;
+    struct flb_log_event_decoder *decoder;
+    struct flb_log_event event;
+    struct opentelemetry_context *ctx;
+    struct flb_record_accessor *ra_match;
+    struct flb_ra_value *ra_val;
+
+    Opentelemetry__Proto__Collector__Logs__V1__ExportLogsServiceRequest export_logs;
+    Opentelemetry__Proto__Logs__V1__ResourceLogs **resource_logs;
+    Opentelemetry__Proto__Logs__V1__ResourceLogs *resource_log = NULL;
+    Opentelemetry__Proto__Logs__V1__ScopeLogs **scope_logs;
+    Opentelemetry__Proto__Logs__V1__ScopeLogs *scope_log = NULL;
     Opentelemetry__Proto__Logs__V1__LogRecord **log_record_list;
     Opentelemetry__Proto__Logs__V1__LogRecord  *log_records;
-    struct flb_log_event_decoder               *decoder;
-    struct flb_log_event                        event;
-    struct opentelemetry_context               *ctx;
-    struct flb_record_accessor *ra_match;
 
     ctx = (struct opentelemetry_context *) out_context;
 
@@ -1233,9 +1279,174 @@ static int process_logs(struct flb_event_chunk *event_chunk,
     }
 
     log_record_count = 0;
+    opentelemetry__proto__collector__logs__v1__export_logs_service_request__init(&export_logs);
+
+    /* allocate for 100 resource logs */
+    resource_logs = flb_calloc(100, sizeof(Opentelemetry__Proto__Logs__V1__ResourceLogs *));
+    if (!resource_logs) {
+        flb_errno();
+        flb_log_event_decoder_destroy(decoder);
+        flb_free(log_record_list);
+        flb_free(log_records);
+        return -1;
+    }
+    export_logs.resource_logs = resource_logs;
+    export_logs.n_resource_logs = 0;
 
     ret = FLB_OK;
     while (flb_log_event_decoder_next(decoder, &event) == FLB_EVENT_DECODER_SUCCESS) {
+        /* Check if the record is special (group) or a normal one */
+        ret = flb_log_event_decoder_get_record_type(&event, &record_type);
+        if (ret != 0) {
+            flb_plg_error(ctx->ins, "record has invalid event type");
+            continue;
+        }
+
+        /*
+         * Group start: handle resource an scope
+         * -------------------------------------
+         */
+        if (record_type == FLB_LOG_EVENT_GROUP_START) {
+            /* Look for OTLP info */
+            ret = get_otlp_group_metadata(ctx, &event);
+            if (ret == -1) {
+                /* skip unknown group info */
+                continue;
+            }
+
+            /* if we have a new resource_id, start a new resource context */
+            if (resource_id != ret) {
+                /*
+                * On every group start, check if we are following the previous resource_id or not, so we can pack scopes
+                * under the right resource.
+                */
+                resource_log = flb_calloc(1, sizeof(Opentelemetry__Proto__Logs__V1__ResourceLogs));
+                if (!resource_log) {
+                    flb_errno();
+                    ret = FLB_RETRY;
+                    break;
+                }
+                opentelemetry__proto__logs__v1__resource_logs__init(resource_log);
+
+                /* add the resource log */
+                resource_logs[export_logs.n_resource_logs] = resource_log;
+                export_logs.n_resource_logs++;
+
+                resource_log->resource = flb_calloc(1, sizeof(Opentelemetry__Proto__Resource__V1__Resource));
+                if (!resource_log->resource) {
+                    flb_errno();
+                    flb_free(resource_log);
+                    ret = FLB_RETRY;
+                    break;
+                }
+                opentelemetry__proto__resource__v1__resource__init(resource_log->resource);
+
+                /* get body $resource['attributes'] */
+                ra_val = flb_ra_get_value_object(ctx->ra_resource_attr, *event.body);
+                if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_MAP) {
+                    resource_log->resource->attributes = msgpack_map_to_otlp_kvarray(&ra_val->o, &resource_log->resource->n_attributes);
+                    flb_ra_key_value_destroy(ra_val);
+                    ra_val = NULL;
+
+                    if (!resource_log->resource->attributes) {
+                        flb_free(resource_log->resource);
+                        flb_free(resource_log);
+                        ret = FLB_RETRY;
+                        break;
+                    }
+                }
+
+                if (ra_val) {
+                    flb_ra_key_value_destroy(ra_val);
+                }
+
+                /* prepare the scopes */
+                scope_logs = flb_calloc(100, sizeof(Opentelemetry__Proto__Logs__V1__ScopeLogs *));
+                if (!scope_logs) {
+                    flb_errno();
+                    ret = FLB_RETRY;
+                    break;
+                }
+
+                resource_log->scope_logs = scope_logs;
+                resource_log->n_scope_logs = 0;
+
+                /* update the current resource_id */
+                resource_id = ret;
+            }
+
+            /* process the scope */
+            scope_log = flb_calloc(1, sizeof(Opentelemetry__Proto__Logs__V1__ScopeLogs));
+            if (!scope_log) {
+                flb_errno();
+                ret = FLB_RETRY;
+                break;
+            }
+            opentelemetry__proto__logs__v1__scope_logs__init(scope_log);
+
+            scope_log->scope = flb_calloc(1, sizeof(Opentelemetry__Proto__Common__V1__InstrumentationScope));
+            if (!scope_log->scope) {
+                flb_errno();
+                flb_free(scope_log);
+                ret = FLB_RETRY;
+                break;
+            }
+            opentelemetry__proto__common__v1__instrumentation_scope__init(scope_log->scope);
+
+            /* scope name */
+            ra_val = flb_ra_get_value_object(ctx->ra_scope_name, *event.body);
+            if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_STR) {
+                scope_log->scope->name = flb_calloc(1, ra_val->o.via.str.size + 1);
+                if (scope_log->scope->name) {
+                    strncpy(scope_log->scope->name, ra_val->o.via.str.ptr, ra_val->o.via.str.size);
+                    scope_log->scope->name[ra_val->o.via.str.size] = '\0';
+                }
+                flb_ra_key_value_destroy(ra_val);
+                ra_val = NULL;
+            }
+
+            /* scope version */
+            ra_val = flb_ra_get_value_object(ctx->ra_scope_version, *event.body);
+            if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_STR) {
+                scope_log->scope->version = flb_calloc(1, ra_val->o.via.str.size + 1);
+                if (scope_log->scope->version) {
+                    strncpy(scope_log->scope->version, ra_val->o.via.str.ptr, ra_val->o.via.str.size);
+                    scope_log->scope->version[ra_val->o.via.str.size] = '\0';
+                }
+                flb_ra_key_value_destroy(ra_val);
+                ra_val = NULL;
+            }
+
+            /* scope attributes */
+            ra_val = flb_ra_get_value_object(ctx->ra_scope_attr, *event.body);
+            if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_MAP) {
+                scope_log->scope->attributes = msgpack_map_to_otlp_kvarray(&ra_val->o, &scope_log->scope->n_attributes);
+                flb_ra_key_value_destroy(ra_val);
+                ra_val = NULL;
+
+                if (!scope_log->scope->attributes) {
+                    flb_free(scope_log->scope);
+                    flb_free(scope_log);
+                    ret = FLB_RETRY;
+                    break;
+                }
+            }
+
+            scope_logs[resource_log->n_scope_logs] = scope_log;
+            resource_log->n_scope_logs++;
+
+            scope_log->log_records = log_record_list;
+            scope_log->n_log_records = log_record_count;
+
+            ret = FLB_OK;
+            continue;
+        }
+        else if (record_type == FLB_LOG_EVENT_GROUP_END) {
+            /* do nothing */
+            ret = FLB_OK;
+            continue;
+        }
+
         ra_match = NULL;
         opentelemetry__proto__logs__v1__log_record__init(&log_records[log_record_count]);
 
@@ -1270,9 +1481,10 @@ static int process_logs(struct flb_event_chunk *event_chunk,
 
         log_records[log_record_count].time_unix_nano = flb_time_to_nanosec(&event.timestamp);
         log_record_count++;
+        scope_log->n_log_records = log_record_count;
 
         if (log_record_count >= ctx->batch_size) {
-            ret = flush_to_otel(ctx, event_chunk, log_record_list, log_record_count);
+            ret = logs_flush_to_otel(ctx, event_chunk, &export_logs);
             clear_array(log_record_list, log_record_count);
             log_record_count = 0;
         }
@@ -1281,11 +1493,7 @@ static int process_logs(struct flb_event_chunk *event_chunk,
     flb_log_event_decoder_destroy(decoder);
 
     if (log_record_count > 0 && ret == FLB_OK) {
-        ret = flush_to_otel(ctx,
-                            event_chunk,
-                            log_record_list,
-                            log_record_count);
-
+        ret = logs_flush_to_otel(ctx, event_chunk, &export_logs);
         clear_array(log_record_list, log_record_count);
     }
 
@@ -1603,6 +1811,10 @@ static struct flb_config_map config_map[] = {
      "Specify if the response paylod should be logged or not"
     },
     {
+     FLB_CONFIG_MAP_STR, "logs_metadata_key", "otlp",
+     0, FLB_TRUE, offsetof(struct opentelemetry_context, logs_metadata_key),
+    },
+    {
      FLB_CONFIG_MAP_STR, "logs_observed_timestamp_metadata_key", "$ObservedTimestamp",
      0, FLB_TRUE, offsetof(struct opentelemetry_context, logs_observed_timestamp_metadata_key),
      "Specify an ObservedTimestamp key"
@@ -1672,6 +1884,7 @@ static struct flb_config_map config_map[] = {
      0, FLB_TRUE, offsetof(struct opentelemetry_context, logs_severity_number_message_key),
      "Specify a Severity Number key"
     },
+
 
     /* EOF */
     {0}

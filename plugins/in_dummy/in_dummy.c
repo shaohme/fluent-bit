@@ -85,6 +85,15 @@ static int generate_event(struct flb_dummy *ctx)
 
     msgpack_unpacked_init(&object);
 
+    flb_log_event_encoder_group_init(ctx->encoder);
+
+                /* pack schema (internal) */
+            flb_log_event_encoder_append_metadata_values(ctx->encoder,
+                                                               FLB_LOG_EVENT_STRING_VALUE("schema", 6),
+                                                               FLB_LOG_EVENT_STRING_VALUE("otlp", 4));
+
+    flb_log_event_encoder_group_header_end(ctx->encoder);
+
     while (result == FLB_EVENT_ENCODER_SUCCESS &&
            msgpack_unpack_next(&object,
                                ctx->ref_body_msgpack,
@@ -111,12 +120,14 @@ static int generate_event(struct flb_dummy *ctx)
             }
 
             if (result == FLB_EVENT_ENCODER_SUCCESS) {
-                result = flb_log_event_encoder_commit_record(ctx->encoder);
+                 result = flb_log_event_encoder_commit_record(ctx->encoder);
             }
-        }
+       }
 
         body_start = chunk_offset;
     }
+
+    flb_log_event_encoder_group_end(ctx->encoder);
 
     msgpack_unpacked_destroy(&object);
 

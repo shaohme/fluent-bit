@@ -85,4 +85,6 @@ int flb_log_event_decoder_next(struct flb_log_event_decoder *context,
 
 const char *flb_log_event_decoder_get_error_description(int error_code);
 
+int flb_log_event_decoder_get_record_type(struct flb_log_event *event, int32_t *type);
+
 #endif

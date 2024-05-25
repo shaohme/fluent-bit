@@ -22,6 +22,7 @@
 #include <fluent-bit/flb_pack.h>
 #include <fluent-bit/flb_sds.h>
 #include <fluent-bit/flb_kv.h>
+#include <fluent-bit/flb_record_accessor.h>
 
 #include "opentelemetry.h"
 #include "opentelemetry_conf.h"
@@ -439,6 +440,38 @@ struct opentelemetry_context *flb_opentelemetry_context_create(struct flb_output
                                               FLB_FALSE);
     if (ctx->ra_severity_number_message == NULL) {
         flb_plg_error(ins, "failed to create ra for message severity number");
+    }
+
+    /* record accessor: group metadata */
+    ctx->ra_meta_schema = flb_ra_create("$schema", FLB_FALSE);
+    if (ctx->ra_meta_schema == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for schema");
+    }
+
+    ctx->ra_meta_resource_id = flb_ra_create((char *) "$resource_id", FLB_FALSE);
+    if (ctx->ra_meta_resource_id == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for resource id");
+    }
+
+    /* record accessor: group body */
+    ctx->ra_resource_attr = flb_ra_create("$resource['attributes']", FLB_FALSE);
+    if (ctx->ra_resource_attr == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for resource attributes");
+    }
+
+    ctx->ra_scope_name = flb_ra_create("$scope['name']", FLB_FALSE);
+    if (ctx->ra_scope_name == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for scope name");
+    }
+
+    ctx->ra_scope_version = flb_ra_create("$scope['version']", FLB_FALSE);
+    if (ctx->ra_scope_version == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for scope version");
+    }
+
+    ctx->ra_scope_attr = flb_ra_create("$scope['attributes']", FLB_FALSE);
+    if (ctx->ra_scope_attr == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for scope attributes");
     }
 
     return ctx;

@@ -59,6 +59,9 @@ struct opentelemetry_context {
     char *host;
     int port;
 
+    /* record metadata parsing */
+    flb_sds_t logs_metadata_key;
+
     /* metadata keys */
     flb_sds_t logs_observed_timestamp_metadata_key;
     struct flb_record_accessor *ra_observed_timestamp_metadata;
@@ -139,6 +142,15 @@ struct opentelemetry_context {
 
     /* Compression mode (gzip) */
     int compress_gzip;
+
+    /* FLB/OTLP Record accessor patterns */
+    struct flb_record_accessor *ra_meta_schema;
+    struct flb_record_accessor *ra_meta_resource_id;
+    struct flb_record_accessor *ra_resource_attr;
+
+    struct flb_record_accessor *ra_scope_name;
+    struct flb_record_accessor *ra_scope_version;
+    struct flb_record_accessor *ra_scope_attr;
 };
 
 #endif

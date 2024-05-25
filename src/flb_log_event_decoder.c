@@ -167,8 +167,8 @@ int flb_log_event_decoder_decode_timestamp(msgpack_object *input,
             return FLB_EVENT_DECODER_ERROR_WRONG_TIMESTAMP_TYPE;
         }
 
-        output->tm.tv_sec  = FLB_BSWAP_32(*((uint32_t *) &input->via.ext.ptr[0]));
-        output->tm.tv_nsec = FLB_BSWAP_32(*((uint32_t *) &input->via.ext.ptr[4]));
+        output->tm.tv_sec  = (int32_t) FLB_BSWAP_32(*((uint32_t *) &input->via.ext.ptr[0]));
+        output->tm.tv_nsec = (int32_t) FLB_BSWAP_32(*((uint32_t *) &input->via.ext.ptr[4]));
     }
     else {
         return FLB_EVENT_DECODER_ERROR_WRONG_TIMESTAMP_TYPE;
@@ -314,6 +314,28 @@ int flb_log_event_decoder_next(struct flb_log_event_decoder *context,
                                                            event,
                                                            &context->unpacked_event.data);
     return context->last_result;
+}
+
+int flb_log_event_decoder_get_record_type(struct flb_log_event *event, int32_t *type)
+{
+    int32_t s;
+
+    s = (int32_t) event->timestamp.tm.tv_sec;
+
+    if (s >= 0) {
+        *type = FLB_LOG_EVENT_NORMAL;
+        return 0;
+    }
+    else if (s == FLB_LOG_EVENT_GROUP_START) {
+        *type = FLB_LOG_EVENT_GROUP_START;
+        return 0;
+    }
+    else if (s == FLB_LOG_EVENT_GROUP_END) {
+        *type = FLB_LOG_EVENT_GROUP_END;
+        return 0;
+    }
+
+    return -1;
 }
 
 const char *flb_log_event_decoder_get_error_description(int error_code)
