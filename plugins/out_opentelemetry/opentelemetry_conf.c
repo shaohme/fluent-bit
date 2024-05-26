@@ -474,6 +474,21 @@ struct opentelemetry_context *flb_opentelemetry_context_create(struct flb_output
         flb_plg_error(ins, "failed to create record accessor for scope attributes");
     }
 
+    ctx->ra_log_meta_otlp_observed_ts = flb_ra_create("$otlp['ObservedTimestamp']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_observed_ts == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp observed timestamp");
+    }
+
+    ctx->ra_log_meta_otlp_attr = flb_ra_create("$otlp['Attributes']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_attr == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp attributes");
+    }
+
+    ctx->ra_log_meta_otlp_trace_flags = flb_ra_create("$otlp['TraceFlags']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_trace_flags == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp trace flags");
+    }
+
     return ctx;
 }
 

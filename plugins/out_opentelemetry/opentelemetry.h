@@ -151,6 +151,11 @@ struct opentelemetry_context {
     struct flb_record_accessor *ra_scope_name;
     struct flb_record_accessor *ra_scope_version;
     struct flb_record_accessor *ra_scope_attr;
+
+    /* log: metadata components coming from OTLP */
+    struct flb_record_accessor *ra_log_meta_otlp_observed_ts;
+    struct flb_record_accessor *ra_log_meta_otlp_attr;
+    struct flb_record_accessor *ra_log_meta_otlp_trace_flags;
 };
 
 #endif

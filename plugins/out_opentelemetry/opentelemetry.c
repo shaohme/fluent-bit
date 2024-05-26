@@ -963,8 +963,14 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
     if (ctx == NULL || event == NULL || log_record == NULL) {
         return -1;
     }
+
     /* ObservedTimestamp */
-    if (ctx->ra_observed_timestamp_metadata) {
+    ra_val = flb_ra_get_value_object(ctx->ra_observed_timestamp_metadata, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
+        log_record->observed_time_unix_nano = ra_val->o.via.u64;
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_observed_timestamp_metadata) {
         ra_val = flb_ra_get_value_object(ctx->ra_observed_timestamp_metadata, *event->metadata);
         if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
             log_record->observed_time_unix_nano = ra_val->o.via.u64;
@@ -1012,7 +1018,12 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
     }
 
     /* TraceFlags */
-    if (ctx->ra_trace_flags_metadata) {
+    ra_val = flb_ra_get_value_object(ctx->ra_trace_flags_metadata, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
+        log_record->flags = (uint32_t)ra_val->o.via.u64;
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_trace_flags_metadata) {
         ra_val = flb_ra_get_value_object(ctx->ra_trace_flags_metadata, *event->metadata);
         if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
             log_record->flags = (uint32_t)ra_val->o.via.u64;
@@ -1047,7 +1058,16 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
     }
 
     /* Attributes */
-    if (ctx->ra_attributes_metadata) {
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_attr, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_MAP) {
+        if (log_record->attributes != NULL) {
+            otlp_kvarray_destroy(log_record->attributes,
+                                 log_record->n_attributes);
+        }
+        log_record->attributes = msgpack_map_to_otlp_kvarray(&ra_val->o, &log_record->n_attributes);
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_attributes_metadata) {
         ra_val = flb_ra_get_value_object(ctx->ra_attributes_metadata, *event->metadata);
         if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_MAP) {
             if (log_record->attributes != NULL) {
