@@ -154,7 +154,12 @@ struct opentelemetry_context {
 
     /* log: metadata components coming from OTLP */
     struct flb_record_accessor *ra_log_meta_otlp_observed_ts;
+    struct flb_record_accessor *ra_log_meta_otlp_timestamp;
+    struct flb_record_accessor *ra_log_meta_otlp_severity_number;
+    struct flb_record_accessor *ra_log_meta_otlp_severity_text;
     struct flb_record_accessor *ra_log_meta_otlp_attr;
+    struct flb_record_accessor *ra_log_meta_otlp_trace_id;
+    struct flb_record_accessor *ra_log_meta_otlp_span_id;
     struct flb_record_accessor *ra_log_meta_otlp_trace_flags;
 };
 

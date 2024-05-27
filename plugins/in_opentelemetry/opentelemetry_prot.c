@@ -414,30 +414,30 @@ static int otel_pack_v1_metadata(struct flb_opentelemetry *ctx,
     flb_mp_map_header_init(&mh, mp_pck);
 
     flb_mp_map_header_append(&mh);
-    msgpack_pack_str(mp_pck, 17);
-    msgpack_pack_str_body(mp_pck, "ObservedTimestamp", 17);
+    msgpack_pack_str(mp_pck, 18);
+    msgpack_pack_str_body(mp_pck, "observed_timestamp", 18);
     msgpack_pack_uint64(mp_pck, log_record->observed_time_unix_nano);
 
     /* Value of 0 indicates unknown or missing timestamp. */
     if (log_record->time_unix_nano != 0) {
         flb_mp_map_header_append(&mh);
         msgpack_pack_str(mp_pck, 9);
-        msgpack_pack_str_body(mp_pck, "Timestamp", 9);
+        msgpack_pack_str_body(mp_pck, "timestamp", 9);
         msgpack_pack_uint64(mp_pck, log_record->time_unix_nano);
     }
 
     /* https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber */
     if (log_record->severity_number >= 1 && log_record->severity_number <= 24) {
         flb_mp_map_header_append(&mh);
-        msgpack_pack_str(mp_pck, 14);
-        msgpack_pack_str_body(mp_pck, "SeverityNumber", 14);
+        msgpack_pack_str(mp_pck, 15);
+        msgpack_pack_str_body(mp_pck, "severity_number", 15);
         msgpack_pack_uint64(mp_pck, log_record->severity_number);
     }
 
     if (log_record->severity_text != NULL && strlen(log_record->severity_text) > 0) {
         flb_mp_map_header_append(&mh);
-        msgpack_pack_str(mp_pck, 12);
-        msgpack_pack_str_body(mp_pck, "SeverityText", 12);
+        msgpack_pack_str(mp_pck, 13);
+        msgpack_pack_str_body(mp_pck, "severity_text", 13);
         msgpack_pack_str(mp_pck, strlen(log_record->severity_text));
         msgpack_pack_str_body(mp_pck, log_record->severity_text, strlen(log_record->severity_text));
     }
@@ -445,7 +445,7 @@ static int otel_pack_v1_metadata(struct flb_opentelemetry *ctx,
     if (log_record->n_attributes > 0) {
         flb_mp_map_header_append(&mh);
         msgpack_pack_str(mp_pck, 10);
-        msgpack_pack_str_body(mp_pck, "Attributes", 10);
+        msgpack_pack_str_body(mp_pck, "attributes", 10);
         ret = otel_pack_kvarray(mp_pck,
                                 log_record->attributes,
                                 log_record->n_attributes);
@@ -456,8 +456,8 @@ static int otel_pack_v1_metadata(struct flb_opentelemetry *ctx,
 
     if (log_record->trace_id.len > 0) {
         flb_mp_map_header_append(&mh);
-        msgpack_pack_str(mp_pck, 7);
-        msgpack_pack_str_body(mp_pck, "TraceId", 7);
+        msgpack_pack_str(mp_pck, 8);
+        msgpack_pack_str_body(mp_pck, "trace_id", 8);
         ret = otel_pack_bytes(mp_pck, log_record->trace_id);
         if (ret != 0) {
             return ret;
@@ -466,8 +466,8 @@ static int otel_pack_v1_metadata(struct flb_opentelemetry *ctx,
 
     if (log_record->span_id.len > 0) {
         flb_mp_map_header_append(&mh);
-        msgpack_pack_str(mp_pck, 6);
-        msgpack_pack_str_body(mp_pck, "SpanId", 6);
+        msgpack_pack_str(mp_pck, 7);
+        msgpack_pack_str_body(mp_pck, "span_id", 7);
         ret = otel_pack_bytes(mp_pck, log_record->span_id);
         if (ret != 0) {
             return ret;
@@ -475,9 +475,9 @@ static int otel_pack_v1_metadata(struct flb_opentelemetry *ctx,
     }
 
     flb_mp_map_header_append(&mh);
-    msgpack_pack_str(mp_pck, 10);
-    msgpack_pack_str_body(mp_pck, "TraceFlags", 10);
-    msgpack_pack_uint8(mp_pck, (uint8_t)log_record->flags & 0xff);
+    msgpack_pack_str(mp_pck, 11);
+    msgpack_pack_str_body(mp_pck, "trace_flags", 11);
+    msgpack_pack_uint8(mp_pck, (uint8_t) log_record->flags & 0xff);
 
     flb_mp_map_header_end(&mh);
 
@@ -499,6 +499,7 @@ static int binary_payload_to_msgpack(struct flb_opentelemetry *ctx,
     int log_record_index;
     struct flb_mp_map_header mh;
     struct flb_mp_map_header mh_tmp;
+    struct flb_time tm;
 
     /* record buffer and packer */
     msgpack_sbuffer mp_sbuf;
@@ -676,7 +677,14 @@ static int binary_payload_to_msgpack(struct flb_opentelemetry *ctx,
                 ret = flb_log_event_encoder_begin_record(encoder);
 
                 if (ret == FLB_EVENT_ENCODER_SUCCESS) {
-                    ret = flb_log_event_encoder_set_current_timestamp(encoder);
+                    //msgpack_pack_uint64(mp_pck, log_record->time_unix_nano);
+                    if (log_records[log_record_index]->time_unix_nano > 0) {
+                        flb_time_from_uint64(&tm, log_records[log_record_index]->time_unix_nano);
+                        ret = flb_log_event_encoder_set_timestamp(encoder, &tm);
+                    }
+                    else {
+                        ret = flb_log_event_encoder_set_current_timestamp(encoder);
+                    }
                 }
 
                 if (ret == FLB_EVENT_ENCODER_SUCCESS) {

@@ -965,7 +965,7 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
     }
 
     /* ObservedTimestamp */
-    ra_val = flb_ra_get_value_object(ctx->ra_observed_timestamp_metadata, *event->metadata);
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_observed_ts, *event->metadata);
     if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
         log_record->observed_time_unix_nano = ra_val->o.via.u64;
         flb_ra_key_value_destroy(ra_val);
@@ -979,7 +979,12 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
     }
 
     /* Timestamp */
-    if (ctx->ra_timestamp_metadata) {
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_timestamp, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
+        log_record->time_unix_nano = ra_val->o.via.u64;
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_timestamp_metadata) {
         ra_val = flb_ra_get_value_object(ctx->ra_timestamp_metadata, *event->metadata);
         if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
             log_record->time_unix_nano = ra_val->o.via.u64;
@@ -990,8 +995,34 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
         }
     }
 
+    /* SeverityNumber */
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_severity_number, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER &&
+        is_valid_severity_number(ra_val->o.via.u64) == FLB_TRUE) {
+        log_record->severity_number = ra_val->o.via.u64;
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_severity_number_metadata) {
+        ra_val = flb_ra_get_value_object(ctx->ra_severity_number_metadata, *event->metadata);
+        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER &&
+            is_valid_severity_number(ra_val->o.via.u64) == FLB_TRUE) {
+            log_record->severity_number = ra_val->o.via.u64;
+            flb_ra_key_value_destroy(ra_val);
+        }
+    }
+
     /* SeverityText */
-    if (ctx->ra_severity_text_metadata) {
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_severity_text, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_STR &&
+        is_valid_severity_text(ra_val->o.via.str.ptr, ra_val->o.via.str.size) == FLB_TRUE) {
+        log_record->severity_text = flb_calloc(1, ra_val->o.via.str.size + 1);
+        if (log_record->severity_text) {
+            strncpy(log_record->severity_text, ra_val->o.via.str.ptr, ra_val->o.via.str.size);
+        }
+        flb_ra_key_value_destroy(ra_val);
+
+    }
+    else if (ctx->ra_severity_text_metadata) {
         ra_val = flb_ra_get_value_object(ctx->ra_severity_text_metadata, *event->metadata);
         if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_STR &&
             is_valid_severity_text(ra_val->o.via.str.ptr, ra_val->o.via.str.size) == FLB_TRUE) {
@@ -1001,60 +1032,10 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
             }
             flb_ra_key_value_destroy(ra_val);
         }
-        else {
-            /* To prevent invalid free */
-            log_record->severity_text = NULL;
-        }
     }
-
-    /* SeverityNumber */
-    if (ctx->ra_severity_number_metadata) {
-        ra_val = flb_ra_get_value_object(ctx->ra_severity_number_metadata, *event->metadata);
-        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER &&
-            is_valid_severity_number(ra_val->o.via.u64) == FLB_TRUE) {
-            log_record->severity_number = ra_val->o.via.u64;
-            flb_ra_key_value_destroy(ra_val);
-        }
-    }
-
-    /* TraceFlags */
-    ra_val = flb_ra_get_value_object(ctx->ra_trace_flags_metadata, *event->metadata);
-    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
-        log_record->flags = (uint32_t)ra_val->o.via.u64;
-        flb_ra_key_value_destroy(ra_val);
-    }
-    else if (ctx->ra_trace_flags_metadata) {
-        ra_val = flb_ra_get_value_object(ctx->ra_trace_flags_metadata, *event->metadata);
-        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
-            log_record->flags = (uint32_t)ra_val->o.via.u64;
-            flb_ra_key_value_destroy(ra_val);
-        }
-    }
-
-    /* SpanId */
-    if (ctx->ra_span_id_metadata) {
-        ra_val = flb_ra_get_value_object(ctx->ra_span_id_metadata, *event->metadata);
-        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_BIN) {
-            log_record->span_id.data = flb_calloc(1, ra_val->o.via.bin.size);
-            if (log_record->span_id.data) {
-                memcpy(log_record->span_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
-                log_record->span_id.len = ra_val->o.via.bin.size;
-            }
-            flb_ra_key_value_destroy(ra_val);
-        }
-    }
-
-    /* TraceId */
-    if (ctx->ra_trace_id_metadata) {
-        ra_val = flb_ra_get_value_object(ctx->ra_trace_id_metadata, *event->metadata);
-        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_BIN) {
-            log_record->trace_id.data = flb_calloc(1, ra_val->o.via.bin.size);
-            if (log_record->trace_id.data) {
-                memcpy(log_record->trace_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
-                log_record->trace_id.len = ra_val->o.via.bin.size;
-            }
-            flb_ra_key_value_destroy(ra_val);
-        }
+    else {
+        /* To prevent invalid free */
+        log_record->severity_text = NULL;
     }
 
     /* Attributes */
@@ -1075,6 +1056,64 @@ static int append_v1_logs_metadata(struct opentelemetry_context *ctx,
                                      log_record->n_attributes);
             }
             log_record->attributes = msgpack_map_to_otlp_kvarray(&ra_val->o, &log_record->n_attributes);
+            flb_ra_key_value_destroy(ra_val);
+        }
+    }
+
+    /* TraceId */
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_trace_id, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_BIN) {
+        log_record->trace_id.data = flb_calloc(1, ra_val->o.via.bin.size);
+        if (log_record->trace_id.data) {
+            memcpy(log_record->trace_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
+            log_record->trace_id.len = ra_val->o.via.bin.size;
+        }
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_trace_id_metadata) {
+        ra_val = flb_ra_get_value_object(ctx->ra_trace_id_metadata, *event->metadata);
+        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_BIN) {
+            log_record->trace_id.data = flb_calloc(1, ra_val->o.via.bin.size);
+            if (log_record->trace_id.data) {
+                memcpy(log_record->trace_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
+                log_record->trace_id.len = ra_val->o.via.bin.size;
+            }
+            flb_ra_key_value_destroy(ra_val);
+        }
+    }
+
+    /* SpanId */
+    ra_val = flb_ra_get_value_object(ctx->ra_log_meta_otlp_span_id, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_BIN) {
+        log_record->span_id.data = flb_calloc(1, ra_val->o.via.bin.size);
+        if (log_record->span_id.data) {
+            memcpy(log_record->span_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
+            log_record->span_id.len = ra_val->o.via.bin.size;
+        }
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_span_id_metadata) {
+        ra_val = flb_ra_get_value_object(ctx->ra_span_id_metadata, *event->metadata);
+        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_BIN) {
+            log_record->span_id.data = flb_calloc(1, ra_val->o.via.bin.size);
+            if (log_record->span_id.data) {
+                memcpy(log_record->span_id.data, ra_val->o.via.bin.ptr, ra_val->o.via.bin.size);
+                log_record->span_id.len = ra_val->o.via.bin.size;
+            }
+            flb_ra_key_value_destroy(ra_val);
+        }
+    }
+
+    /* TraceFlags */
+    ra_val = flb_ra_get_value_object(ctx->ra_trace_flags_metadata, *event->metadata);
+    if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
+        log_record->flags = (uint32_t)ra_val->o.via.u64;
+        flb_ra_key_value_destroy(ra_val);
+    }
+    else if (ctx->ra_trace_flags_metadata) {
+        ra_val = flb_ra_get_value_object(ctx->ra_trace_flags_metadata, *event->metadata);
+        if (ra_val != NULL && ra_val->o.type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
+            log_record->flags = (uint32_t)ra_val->o.via.u64;
             flb_ra_key_value_destroy(ra_val);
         }
     }

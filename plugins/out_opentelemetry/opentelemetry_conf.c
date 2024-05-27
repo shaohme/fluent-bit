@@ -474,17 +474,44 @@ struct opentelemetry_context *flb_opentelemetry_context_create(struct flb_output
         flb_plg_error(ins, "failed to create record accessor for scope attributes");
     }
 
-    ctx->ra_log_meta_otlp_observed_ts = flb_ra_create("$otlp['ObservedTimestamp']", FLB_FALSE);
+    /* log metadata under $otlp (set by in_opentelemetry) */
+
+    ctx->ra_log_meta_otlp_observed_ts = flb_ra_create("$otlp['observed_timestamp']", FLB_FALSE);
     if (ctx->ra_log_meta_otlp_observed_ts == NULL) {
         flb_plg_error(ins, "failed to create record accessor for otlp observed timestamp");
     }
 
-    ctx->ra_log_meta_otlp_attr = flb_ra_create("$otlp['Attributes']", FLB_FALSE);
+    ctx->ra_log_meta_otlp_timestamp = flb_ra_create("$otlp['timestamp']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_timestamp == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp timestamp");
+    }
+
+    ctx->ra_log_meta_otlp_severity_number = flb_ra_create("$otlp['severity_number']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_severity_number == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp severity number");
+    }
+
+    ctx->ra_log_meta_otlp_severity_text = flb_ra_create("$otlp['severity_text']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_severity_text == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp severity text");
+    }
+
+    ctx->ra_log_meta_otlp_attr = flb_ra_create("$otlp['attributes']", FLB_FALSE);
     if (ctx->ra_log_meta_otlp_attr == NULL) {
         flb_plg_error(ins, "failed to create record accessor for otlp attributes");
     }
 
-    ctx->ra_log_meta_otlp_trace_flags = flb_ra_create("$otlp['TraceFlags']", FLB_FALSE);
+    ctx->ra_log_meta_otlp_trace_id = flb_ra_create("$otlp['trace_id']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_trace_id == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp trace id");
+    }
+
+    ctx->ra_log_meta_otlp_span_id = flb_ra_create("$otlp['span_id']", FLB_FALSE);
+    if (ctx->ra_log_meta_otlp_span_id == NULL) {
+        flb_plg_error(ins, "failed to create record accessor for otlp span id");
+    }
+
+    ctx->ra_log_meta_otlp_trace_flags = flb_ra_create("$otlp['trace_flags']", FLB_FALSE);
     if (ctx->ra_log_meta_otlp_trace_flags == NULL) {
         flb_plg_error(ins, "failed to create record accessor for otlp trace flags");
     }
